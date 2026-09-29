@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Marketing courses you can finish this week</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,700;12..96,800&display=swap" rel="stylesheet">
+<style>
+:root{--blue:#1f3bff;--deep:#0d1a8a;--ink:#f4f6ff;--sun:#ffd84d;--line:rgba(244,246,255,.28)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--blue);color:var(--ink);font-family:'Bricolage Grotesque',system-ui,sans-serif;line-height:1.5}
+main{max-width:1000px;margin:0 auto;padding:72px 24px}
+h1{font-size:clamp(2.6rem,8vw,5.6rem);line-height:.98;letter-spacing:-.03em;font-weight:800;margin:0 0 24px;max-width:12ch}
+.lead{font-size:1.2rem;max-width:44ch;margin:0 0 64px;opacity:.9}
+.plans{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:24px}
+.plan{border:2px solid var(--line);padding:32px;display:flex;flex-direction:column;gap:16px;border-radius:4px}
+.plan.big{background:var(--deep);border-color:var(--sun)}
+.plan h2{margin:0;font-size:1.6rem}
+.price{font-size:3rem;font-weight:800;letter-spacing:-.02em}
+.plan ul{padding-left:20px;margin:0;flex:1}
+button{font:inherit;font-weight:700;cursor:pointer;border:0;border-radius:4px;padding:14px 20px;background:var(--sun);color:#111}
+button:hover{filter:brightness(1.06)}
+button:focus-visible,input:focus-visible{outline:3px solid #fff;outline-offset:2px}
+button:disabled{opacity:.6;cursor:wait}
+dialog{border:0;border-radius:6px;padding:28px;width:min(440px,92vw);background:#fff;color:#111}
+dialog::backdrop{background:rgba(5,10,60,.7)}
+dialog h3{margin:0 0 4px;font-size:1.4rem}
+#card{margin:20px 0;min-height:100px}
+#status{min-height:1.4em;margin:0 0 12px;font-size:.95rem}
+#status.err{color:#b00020}
+.row{display:flex;gap:10px}.row button{flex:1}
+.ghost{background:#eee}
+footer{margin-top:64px;font-size:.9rem;opacity:.75}
+</style>
+</head>
+<body>
+<main>
+  <h1>Learn marketing that actually sells.</h1>
+  <p class="lead">Two plain-text courses. Pay once, and the file downloads to your device right away.</p>
+
+  <div class="plans">
+    <section class="plan">
+      <h2>Lite Marketing Course</h2>
+      <div class="price">$50</div>
+      <ul><li>Positioning and audience basics</li><li>A simple offer and landing page formula</li><li>A 30-day starter plan</li></ul>
+      <button data-course="lite" data-name="Lite Marketing Course" data-price="$50.00">Buy Lite Course</button>
+    </section>
+    <section class="plan big">
+      <h2>In-Depth Marketing Course</h2>
+      <div class="price">$1,500</div>
+      <ul><li>Everything in Lite, in full detail</li><li>Funnels, email, paid ads and SEO systems</li><li>Metrics, testing and a 90-day roadmap</li></ul>
+      <button data-course="indepth" data-name="In-Depth Marketing Course" data-price="$1,500.00">Buy In-Depth Course</button>
+    </section>
+  </div>
+  <footer>Payments are processed securely by Square. We never see or store your card details.</footer>
+</main>
+
+<dialog id="dlg">
+  <h3 id="title"></h3>
+  <div id="amount"></div>
+  <div id="card"></div>
+  <p id="status" role="status"></p>
+  <div class="row">
+    <button id="cancel" class="ghost" type="button">Cancel</button>
+    <button id="pay" type="button">Pay</button>
+  </div>
+</dialog>
+
+<script>
+let cfg, card, current;
+const $ = id => document.getElementById(id);
+const dlg = $('dlg'), status = $('status'), payBtn = $('pay');
+
+function setStatus(msg, err){ status.textContent = msg; status.className = err ? 'err' : ''; }
+
+async function loadSquare(){
+  cfg = await (await fetch('/api/config')).json();
+  await new Promise((ok, fail) => {
+    const s = document.createElement('script');
+    s.src = cfg.isProd ? 'https://web.squarecdn.com/v1/square.js' : 'https://sandbox.web.squarecdn.com/v1/square.js';
+    s.onload = ok; s.onerror = () => fail(new Error('Could not load Square.'));
+    document.head.appendChild(s);
+  });
+}
+
+async function openCheckout(btn){
+  current = btn.dataset.course;
+  $('title').textContent = btn.dataset.name;
+  $('amount').textContent = 'Total: ' + btn.dataset.price + ' USD';
+  setStatus(''); payBtn.disabled = false;
+  dlg.showModal();
+  try {
+    if (!cfg) await loadSquare();
+    if (!card) {
+      const payments = window.Square.payments(cfg.appId, cfg.locationId);
+      card = await payments.card();   // card number, expiry, CVV, postal code only
+    }
+    await card.attach('#card');
+  } catch (e) { setStatus(e.message || 'Checkout failed to load.', true); }
+}
+
+async function pay(){
+  payBtn.disabled = true; setStatus('Processing payment…');
+  try {
+    const t = await card.tokenize();
+    if (t.status !== 'OK') throw new Error(t.errors?.[0]?.message || 'Check your card details.');
+    const r = await fetch('/api/pay', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ sourceId: t.token, course: current }) });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error);
+    const url = URL.createObjectURL(new Blob([data.content], { type:'text/plain' }));
+    const a = Object.assign(document.createElement('a'), { href:url, download:data.filename });
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    setStatus('Payment complete. Your course is downloading.');
+    setTimeout(() => { card.destroy(); card = null; dlg.close(); }, 2500);
+  } catch (e) { setStatus(e.message, true); payBtn.disabled = false; }
+}
+
+document.querySelectorAll('[data-course]').forEach(b => b.addEventListener('click', () => openCheckout(b)));
+payBtn.addEventListener('click', pay);
+$('cancel').addEventListener('click', () => dlg.close());
+</script>
+</body>
+</html>
